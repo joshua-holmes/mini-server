@@ -6,4 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+aws-config = "1.5.4"
+aws-sdk-ec2 = "1.57.0"
 rocket = { version = "0.5.1", features = ["json"] }
+tokio = { version = "1.38.0", features = ["full"] }

@@ -1,19 +1,29 @@
-use rocket::{response::status, serde::json::Json};
+use aws_config::meta::region::RegionProviderChain;
+use aws_config::BehaviorVersion;
+use aws_sdk_ec2::Client;
 
 #[macro_use]
 extern crate rocket;
 
 mod services;
 pub mod types;
-
-// using this endpoint, which is the name of the world, in case future valheim worlds are handled here
-#[post("/the-woodsen", data = "<odin_body>")]
-fn valheim_route(odin_body: Json<types::valheim::OdinBody>) -> status::NoContent {
-    services::valheim::handle(odin_body.into_inner()).unwrap();
-    status::NoContent
-}
+mod routes;
 
 #[launch]
-fn rocket() -> _ {
-    rocket::build().mount("/valheim", routes![valheim_route])
+#[tokio::main]
+async fn rocket() -> _ {
+    let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
+    let config = aws_config::defaults(BehaviorVersion::latest())
+        .region(region_provider)
+        .load()
+        .await;
+    let client = Client::new(&config);
+
+    let resp = client.describe_instances();
+    let things = resp.send().await.unwrap().reservations.unwrap();
+    for t in things {
+        println!("TING {:?}", t);
+    }
+
+    rocket::build().mount("/valheim", routes![routes::valheim::handle_odin_request])
 }
