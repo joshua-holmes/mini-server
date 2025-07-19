@@ -6,13 +6,14 @@ use crate::responses::{Response, ResponseMsg};
 use chrono::offset::Utc;
 use chrono::DateTime;
 use rocket::request::{FromRequest, Outcome};
+use rocket::response::{content, status};
 use rocket::Request;
 
 #[derive(Clone)]
 pub struct ClientIp(Option<IpAddr>);
 
 #[derive(Clone)]
-pub struct IpCsvPath(String);
+pub struct IpCsvPath(PathBuf);
 
 const MAX_LINES_IN_CSV: usize = 1000;
 
@@ -33,8 +34,42 @@ impl<'r> FromRequest<'r> for IpCsvPath {
     type Error = ();
 
     async fn from_request(_: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        Outcome::Success(IpCsvPath("output/ips.csv".to_string()))
+        let mut path = std::env::current_dir().unwrap_or_default();
+        path.push("output/ips.csv");
+        Outcome::Success(IpCsvPath(path))
     }
+}
+
+#[get("/")]
+pub fn serve_html() -> status::Accepted<content::RawHtml<String>> {
+    status::Accepted(content::RawHtml(
+        r#"
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>IP Logger</title>
+    <script>
+        fetch("/ip-logger/log")
+            .then(r => {
+                console.log("status", r.status);
+                return r.text();
+            })
+            .then(d => console.log("response", d))
+            .catch(e => console.error("BIG OOPS", e));
+    </script>
+</head>
+
+<body>
+    I have logged your IP. Thank you for participating in this cyber security experiment!
+</body>
+
+</html>
+    "#
+        .to_string(),
+    ))
 }
 
 #[get("/")]
@@ -52,7 +87,7 @@ pub fn log_ip(ip_addr: ClientIp, csv_path: IpCsvPath) -> Result<Response, Respon
     let fields = "ip address,timestamp\n";
     let mut line = format!("{},{}", ip, datetime.format(format)).into_bytes();
 
-    if let Some(p) = PathBuf::from(&path).parent() {
+    if let Some(p) = path.parent() {
         std::fs::create_dir_all(p).map_err(ResponseMsg::err_from)?;
     }
     if !std::fs::exists(&path).map_err(ResponseMsg::err_from)? {
@@ -85,7 +120,7 @@ mod tests {
     #[test]
     fn test_logs_valid_ip() {
         let ip = ClientIp(Some("1.2.3.4".parse::<IpAddr>().unwrap()));
-        let path = IpCsvPath("test_logs_valid_ip.csv".to_string());
+        let path = IpCsvPath(PathBuf::from("test_logs_valid_ip.csv"));
         std::fs::remove_file(&path.0).unwrap_or(());
 
         let result = log_ip(ip, path.clone());
@@ -105,7 +140,7 @@ mod tests {
     #[test]
     fn test_logs_null_for_missing_ip() {
         let ip = ClientIp(None);
-        let path = IpCsvPath("test_logs_null_for_missing_ip.csv".to_string());
+        let path = IpCsvPath(PathBuf::from("test_logs_null_for_missing_ip.csv"));
         std::fs::remove_file(&path.0).unwrap_or(());
 
         let result = log_ip(ip, path.clone());
@@ -126,7 +161,7 @@ mod tests {
     fn test_subsequent_entries_are_appended() {
         let ip1 = ClientIp(Some("1.1.1.1".parse().unwrap()));
         let ip2 = ClientIp(Some("2.2.2.2".parse().unwrap()));
-        let path = IpCsvPath("test_subsequent_entries_are_appended.csv".to_string());
+        let path = IpCsvPath(PathBuf::from("test_subsequent_entries_are_appended.csv"));
         std::fs::remove_file(&path.0).unwrap_or(());
 
         log_ip(ip1, path.clone()).unwrap();
@@ -148,7 +183,7 @@ mod tests {
     #[test]
     fn test_file_line_length_is_capped() {
         let ip = ClientIp(Some("1.2.3.4".parse::<IpAddr>().unwrap()));
-        let path = IpCsvPath("test_file_line_length_is_capped.csv".to_string());
+        let path = IpCsvPath(PathBuf::from("test_file_line_length_is_capped.csv"));
         std::fs::remove_file(&path.0).unwrap_or(());
 
         for _ in 0..(MAX_LINES_IN_CSV + 10) {
